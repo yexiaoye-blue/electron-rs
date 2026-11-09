@@ -207,6 +207,8 @@ class Window extends EventEmitter {
   isAlwaysOnTop() { return false }
   getTitle() { return this.options.title ?? '' }
   focus() { this.focused = this.options.focusable !== false && this.focusable !== false }
+  setShape(value) { this.inputShape = value }
+  setFullScreenable(value) { this.fullscreenable = value }
   setFocusable(value) { this.nativeCalls.push({ method: 'setFocusable', value }); this.focusable = value }
   show() {
     if (faults.show) throw new Error('window show failed')
@@ -347,6 +349,63 @@ const createChildren = async () => {
 
 let result
 switch (process.argv[2]) {
+  case 'pet-taskbar': {
+    context.process.platform = 'linux'
+    const host = await createHost(true, { transparent: true, decorations: false, focusable: false, skipTaskbar: true })
+    assert.equal(host.options.type, 'toolbar')
+    assert.equal(host.options.focusable, false)
+    assert.equal(host.focusable, false)
+    assert.equal(host.options.skipTaskbar, true)
+    assert.equal((await call('window.geometry', { windowId: 2 })).alwaysOnTop, true)
+    result = { type: host.options.type, focusable: host.focusable }
+    break
+  }
+  case 'pet-wayland-focus': {
+    context.process.platform = 'linux'
+    const host = await createHost(true, { transparent: true, decorations: false, focusable: true, skipTaskbar: true, focus: false })
+    assert.equal(host.options.focusable, true)
+    assert.equal(host.options.type, undefined)
+    assert.equal(host.focusable, undefined)
+    const contents = context.mainContents(host)
+    contents.url = 'http://127.0.0.1:3081/dsh-pet-lite/desktop'
+    const scripts = []
+    const original = contents.executeJavaScript
+    contents.executeJavaScript = (script, ...rest) => {
+      scripts.push(script)
+      return original.call(contents, script, ...rest)
+    }
+    let prevented = false
+    host.emit('system-context-menu', { preventDefault() { prevented = true } })
+    await Promise.resolve()
+    assert.equal(prevented, true)
+    assert.ok(scripts.some(script => script.includes('__DSH_PET_MENU__')))
+    result = { focusable: true, type: null, prevented }
+    break
+  }
+  case 'pet-input': {
+    const host = await createHost(true, { transparent: true, decorations: false, focusable: false, skipTaskbar: true })
+    const rectangles = [{ x: 8, y: 4, width: 24, height: 32 }]
+    await call('window.inputShape', { windowId: 2, rectangles })
+    assert.deepEqual(host.inputShape, rectangles)
+    await call('window.fullscreenable', { windowId: 2, fullscreenable: false })
+    assert.equal(host.fullscreenable, false)
+    for (const invalid of [[{ x: -1, y: 0, width: 2, height: 2 }], [{ x: 0, y: 0, width: 0, height: 2 }], [{ x: 0.5, y: 0, width: 2, height: 2 }], Array(4097).fill(rectangles[0])]) {
+      assert.equal(await errorFrom(() => call('window.inputShape', { windowId: 2, rectangles: invalid })), 'WINDOW_INPUT_SHAPE_INVALID')
+    }
+    assert.deepEqual(host.inputShape, rectangles)
+    await call('window.inputShape', { windowId: 2, rectangles: [] })
+    assert.deepEqual(host.inputShape, [])
+    context.process.platform = 'linux'
+    context.process.env.WAYLAND_DISPLAY = 'wayland-0'
+    electron.app.commandLine = { getSwitchValue: () => 'wayland' }
+    await call('window.inputShape', { windowId: 2, rectangles })
+    assert.deepEqual(host.inputShape, [])
+    electron.app.commandLine.getSwitchValue = () => 'x11'
+    await call('window.inputShape', { windowId: 2, rectangles })
+    assert.deepEqual(host.inputShape, rectangles)
+    result = { inputShape: host.inputShape, fullscreenable: host.fullscreenable }
+    break
+  }
   case 'geometry': {
     const host = await createHost()
     const cursor = await call('window.cursorPosition', {})

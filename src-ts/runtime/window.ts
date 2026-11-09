@@ -116,6 +116,45 @@ export class Window extends EventEmitter<WindowEvents> {
     if (this.env.platform === 'win32') this.applyAppDetails()
     if (this.env.platform === 'linux') this.setBackgroundColor(this.config.backgroundColor)
     if (this.env.platform === 'linux' && this.config.focusable === false) this.native.setFocusable(false)
+    if (this.config.transparent === true && this.config.decorations === false && this.config.skipTaskbar === true) {
+      let petMenuAt = 0
+      this.native.on('system-context-menu', (event) => {
+        petMenuAt = Date.now()
+        event.preventDefault()
+        for (const contents of this.env.contents(this)) {
+          if (contents.isDestroyed() || !contents.getURL()) continue
+          void contents.executeJavaScript('globalThis.__DSH_PET_MENU__?.()', true).catch(() => {})
+        }
+      })
+      if (this.config.focusable === true) {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const armAt = Date.now() + 700
+        const cancel = () => { if (timer !== undefined) { clearTimeout(timer); timer = undefined } }
+        this.native.on('move', cancel)
+        this.native.on('blur', () => {
+          cancel()
+          if (this.config.alwaysOnTop === true && !this.native.isDestroyed()) this.native.setAlwaysOnTop(true, 'floating')
+        })
+        this.native.on('focus', () => {
+          if (Date.now() < armAt || Date.now() - petMenuAt < 500 || this.native.isDestroyed()) return
+          const cursor = this.env.screen.getCursorScreenPoint()
+          const bounds = this.native.getContentBounds()
+          if (cursor.x < bounds.x || cursor.y < bounds.y || cursor.x >= bounds.x + bounds.width || cursor.y >= bounds.y + bounds.height) return
+          const x = Math.round(cursor.x - bounds.x)
+          const y = Math.round(cursor.y - bounds.y)
+          cancel()
+          timer = setTimeout(() => {
+            timer = undefined
+            if (this.native.isDestroyed() || Date.now() - petMenuAt < 500) return
+            const script = 'globalThis.__DSH_PET_CLICK__?.(' + x + ',' + y + ')'
+            for (const contents of this.env.contents(this)) {
+              if (contents.isDestroyed() || !contents.getURL()) continue
+              void contents.executeJavaScript(script, true).catch(() => {})
+            }
+          }, 180)
+        })
+      }
+    }
     this.native.on('resize', this.onMetricsChanged)
     this.native.on('move', this.onMetricsChanged)
     this.native.on('maximize', this.onMetricsChanged)
@@ -241,11 +280,14 @@ export class Window extends EventEmitter<WindowEvents> {
   }
   geometry(): WindowGeometry {
     const w = this.native
+    // X11 unfocusable overlays bypass the WM even when Electron reports no topmost flag.
+    const unmanagedOverlay = this.env.platform === 'linux' && this.config.skipTaskbar === true && this.config.focusable === false
+      && (!process.env.WAYLAND_DISPLAY || this.env.app.commandLine.getSwitchValue('ozone-platform') === 'x11')
     return {
       scaleFactor: this.scale, bounds: this.physical(w.getBounds()), contentBounds: this.physical(w.getContentBounds()),
       contentConstraints: this.contentConstraints, maximized: w.isMaximized(), minimized: w.isMinimized(), focused: w.isFocused(), visible: w.isVisible(),
       fullscreen: w.isFullScreen() || (this.env.platform === 'darwin' && Boolean(w.isSimpleFullScreen?.())),
-      resizable: w.isResizable(), alwaysOnTop: w.isAlwaysOnTop(),
+      resizable: w.isResizable(), alwaysOnTop: w.isAlwaysOnTop() || unmanagedOverlay,
       decorated: this.env.platform === 'darwin' ? this.env.appKit().isDecorated(w.getNativeWindowHandle()) : this.decorations,
       title: w.getTitle(), maximizable: this.env.platform === 'darwin' ? this.env.appKit().isMaximizable(w.getNativeWindowHandle()) : w.isMaximizable(),
       minimizable: w.isMinimizable(), closable: this.env.platform === 'linux' ? this.closable : w.isClosable(),
@@ -341,6 +383,21 @@ export class Window extends EventEmitter<WindowEvents> {
   }
   setShadow(value: boolean): void { this.native.setHasShadow(value) }
   ignoreCursorEvents(ignore: boolean): void { this.native.setIgnoreMouseEvents(ignore, { forward: true }) }
+
+  setFullscreenable(value: boolean): void { this.native.setFullScreenable(value) }
+
+  setInputShape(rectangles: Electron.Rectangle[]): void {
+    if (!Array.isArray(rectangles) || rectangles.length > 4096
+      || rectangles.some(rect => !rect || ![rect.x, rect.y, rect.width, rect.height].every(Number.isSafeInteger)
+        || rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0)) {
+      throw new Error('WINDOW_INPUT_SHAPE_INVALID')
+    }
+    if (this.env.platform === 'darwin') return
+    const wayland = this.env.platform === 'linux' && !!process.env.WAYLAND_DISPLAY
+      && this.env.app.commandLine.getSwitchValue('ozone-platform') !== 'x11'
+    if (wayland) return
+    this.native.setShape(rectangles)
+  }
   nativeHandle(): { handle: number; processId: number } {
     const buffer = this.native.getNativeWindowHandle()
     return { handle: buffer.length >= 8 ? Number(buffer.readBigUInt64LE(0)) : buffer.readUInt32LE(0), processId: process.pid }

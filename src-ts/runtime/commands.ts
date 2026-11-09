@@ -117,6 +117,8 @@ function windowCommands(ctx: CommandContext): CommandTable {
     'window.backgroundMaterial': (p) => { window(p).setBackgroundMaterial(p.material); return null },
     'window.theme': (p) => window(p).setTheme(p.theme),
     'window.ignoreCursorEvents': (p) => { window(p).ignoreCursorEvents(p.ignore); return null },
+    'window.inputShape': (p) => { window(p).setInputShape(p.rectangles); return null },
+    'window.fullscreenable': (p) => { window(p).setFullscreenable(p.fullscreenable); return null },
     'window.themeQuery': async (p) => ({ theme: (await window(p).readTheme()).theme }),
     'window.displays': () => displays(ctx.display),
     'window.cursorPosition': () => cursorPosition(ctx.display),

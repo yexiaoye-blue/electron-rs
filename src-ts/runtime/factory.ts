@@ -234,8 +234,9 @@ export class Factory implements WindowFactory {
       frame: config.decorations ?? true, transparent: config.transparent ?? false, show: false,
       fullscreen: config.fullscreen ?? false, fullscreenable: true,
       maximizable: config.maximizable ?? true, minimizable: config.minimizable ?? true,
-      closable: config.closable ?? true, focusable: process.platform === 'linux' ? true : config.focusable ?? true,
+      closable: config.closable ?? true, focusable: process.platform === 'linux' && config.skipTaskbar !== true ? true : config.focusable ?? true,
       alwaysOnTop: config.alwaysOnTop ?? false, skipTaskbar: config.skipTaskbar ?? false,
+      ...(process.platform === 'linux' && config.skipTaskbar === true && config.focusable === false ? { type: 'toolbar' } : {}),
       hasShadow: config.shadow ?? true, autoHideMenuBar: true,
       titleBarStyle: process.platform === 'darwin'
         ? style === 'overlay' ? 'hiddenInset' : 'default'

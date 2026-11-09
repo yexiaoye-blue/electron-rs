@@ -409,6 +409,8 @@ pub mod window {
     SetMenu { window_id: u32, menu: Option<Vec<MenuItem>> } => (), "window.setMenu";
     SetSkipTaskbar { window_id: u32, skip: bool } => (), "window.skipTaskbar";
     SetFocusable { window_id: u32, focusable: bool } => (), "window.focusable";
+    SetInputShape { window_id: u32, rectangles: Vec<Rectangle> } => (), "window.inputShape";
+    SetFullscreenable { window_id: u32, fullscreenable: bool } => (), "window.fullscreenable";
     SetContentProtected { window_id: u32, protected: bool } => (), "window.contentProtected";
     Center { window_id: u32 } => (), "window.center";
     RequestAttention { window_id: u32, flash: bool } => (), "window.requestAttention";
